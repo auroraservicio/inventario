@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Inventario 1</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-warning { background: #f39c12; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        .table th { background: #f8f9fa; }
+        .stock-bajo { background: #ffeaa7 !important; }
+        .alert { padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .alert-warning { background: #fff3cd; border: 1px solid #ffeaa7; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <h1>🏪 Sistema de Inventario 1</h1>
+                <p>Gestión completa de productos y stock - Versión 1.0</p>
+            </div>
+
+            <!-- Estadísticas -->
+            <div class="card">
+                <h2>📊 Estadísticas</h2>
+                <div class="grid">
+                    <div>
+                        <p><strong>Total Productos:</strong> {{ estadisticas.totalProductos || 0 }}</p>
+                        <p><strong>Stock Total:</strong> {{ estadisticas.totalStock || 0 }} unidades</p>
+                    </div>
+                    <div>
+                        <p><strong>Valor Total:</strong> ${{ (estadisticas.valorTotalInventario || 0).toFixed(2) }}</p>
+                        <p><strong>Productos con Stock Bajo:</strong> {{ estadisticas.productosStockBajo || 0 }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alertas Stock Bajo -->
+            <div v-if="productosStockBajo.length > 0" class="alert alert-warning">
+                <h3>⚠️ Alertas de Stock Bajo</h3>
+                <ul>
+                    <li v-for="producto in productosStockBajo" :key="producto.id">
+                        {{ producto.nombre }} - Stock: {{ producto.stock }} (Mínimo: {{ producto.stockMinimo }})
+                    </li>
+                </ul>
+            </div>
+
+            <div class="grid">
+                <!-- Formulario de Producto -->
+                <div class="card">
+                    <h2>{{ editarMode ? '✏️ Editar Producto' : '➕ Agregar Nuevo Producto' }}</h2>
+                    <form @submit.prevent="editarMode ? actualizarProducto() : agregarProducto()">
+                        <div class="form-group">
+                            <label>Código:</label>
+                            <input v-model="nuevoProducto.codigo" required :readonly="editarMode">
+                        </div>
+                        <div class="form-group">
+                            <label>Nombre:</label>
+                            <input v-model="nuevoProducto.nombre" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Descripción:</label>
+                            <textarea v-model="nuevoProducto.descripcion" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Categoría:</label>
+                            <input v-model="nuevoProducto.categoria" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Precio:</label>
+                            <input type="number" step="0.01" v-model="nuevoProducto.precio" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Stock:</label>
+                            <input type="number" v-model="nuevoProducto.stock" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Stock Mínimo:</label>
+                            <input type="number" v-model="nuevoProducto.stockMinimo" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            {{ editarMode ? 'Actualizar' : 'Agregar' }}
+                        </button>
+                        <button v-if="editarMode" type="button" class="btn btn-warning" @click="cancelarEdicion">
+                            Cancelar
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Gestión de Stock -->
+                <div class="card">
+                    <h2>📦 Gestión Rápida de Stock</h2>
+                    <div class="form-group">
+                        <label>Producto:</label>
+                        <select v-model="productoSeleccionado">
+                            <option value="">Seleccionar producto</option>
+                            <option v-for="producto in productos" :key="producto.id" :value="producto">
+                                {{ producto.codigo }} - {{ producto.nombre }}
+                            </option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Acción:</label>
+                        <select v-model="accionStock">
+                            <option value="agregar">Agregar Stock</option>
+                            <option value="vender">Vender Producto</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Cantidad:</label>
+                        <input type="number" v-model="cantidadStock" min="1">
+                    </div>
+                    <button class="btn btn-success" @click="gestionarStock" 
+                            :disabled="!productoSeleccionado || !cantidadStock">
+                        Ejecutar
+                    </button>
+                </div>
+            </div>
+
+            <!-- Búsqueda y Filtros -->
+            <div class="card">
+                <h2>🔍 Búsqueda y Filtros</h2>
+                <div class="grid">
+                    <div class="form-group">
+                        <label>Buscar por nombre:</label>
+                        <input v-model="filtroNombre" @input="buscarProductos" placeholder="Nombre del producto...">
+                    </div>
+                    <div class="form-group">
+                        <label>Filtrar por categoría:</label>
+                        <select v-model="filtroCategoria" @change="filtrarPorCategoria">
+                            <option value="">Todas las categorías</option>
+                            <option v-for="cat in categorias" :key="cat" :value="cat">{{ cat }}</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" @click="cargarProductos">Mostrar Todos</button>
+                <button class="btn btn-warning" @click="cargarStockBajo">Stock Bajo</button>
+                <button class="btn btn-info" @click="generarReporte">Generar Reporte</button>
+            </div>
+
+            <!-- Lista de Productos -->
+            <div class="card">
+                <h2>📋 Lista de Productos</h2>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Código</th>
+                            <th>Nombre</th>
+                            <th>Categoría</th>
+                            <th>Precio</th>
+                            <th>Stock</th>
+                            <th>Stock Mínimo</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="producto in productos" :key="producto.id" 
+                            :class="{'stock-bajo': producto.stock < producto.stockMinimo}">
+                            <td>{{ producto.codigo }}</td>
+                            <td>{{ producto.nombre }}</td>
+                            <td>{{ producto.categoria }}</td>
+                            <td>${{ producto.precio.toFixed(2) }}</td>
+                            <td>{{ producto.stock }}</td>
+                            <td>{{ producto.stockMinimo }}</td>
+                            <td>
+                                <button class="btn btn-warning btn-sm" @click="seleccionarEditar(producto)">
+                                    Editar
+                                </button>
+                                <button class="btn btn-danger btn-sm" @click="eliminarProducto(producto.id)">
+                                    Eliminar
+                                </button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+        
+        createApp({
+            setup() {
+                const productos = ref([]);
+                const productosStockBajo = ref([]);
+                const categorias = ref([]);
+                const estadisticas = ref({});
+                const nuevoProducto = ref({
+                    codigo: '',
+                    nombre: '',
+                    descripcion: '',
+                    categoria: '',
+                    precio: 0,
+                    stock: 0,
+                    stockMinimo: 5
+                });
+                const productoSeleccionado = ref(null);
+                const accionStock = ref('agregar');
+                const cantidadStock = ref(1);
+                const editarMode = ref(false);
+                const filtroNombre = ref('');
+                const filtroCategoria = ref('');
+
+                const API_BASE = '/api/productos';
+
+                // Cargar datos iniciales
+                const cargarDatos = async () => {
+                    await cargarProductos();
+                    await cargarEstadisticas();
+                    await cargarCategorias();
+                    await cargarStockBajo();
+                };
+
+                const cargarProductos = async () => {
+                    try {
+                        const response = await axios.get(API_BASE);
+                        productos.value = response.data;
+                    } catch (error) {
+                        console.error('Error cargando productos:', error);
+                    }
+                };
+
+                const cargarEstadisticas = async () => {
+                    try {
+                        const response = await axios.get(`${API_BASE}/estadisticas`);
+                        estadisticas.value = response.data;
+                    } catch (error) {
+                        console.error('Error cargando estadísticas:', error);
+                    }
+                };
+
+                const cargarCategorias = async () => {
+                    try {
+                        const response = await axios.get(`${API_BASE}/categorias`);
+                        categorias.value = response.data;
+                    } catch (error) {
+                        console.error('Error cargando categorías:', error);
+                    }
+                };
+
+                const cargarStockBajo = async () => {
+                    try {
+                        const response = await axios.get(`${API_BASE}/stock-bajo`);
+                        productosStockBajo.value = response.data;
+                    } catch (error) {
+                        console.error('Error cargando stock bajo:', error);
+                    }
+                };
+
+                // Operaciones CRUD
+                const agregarProducto = async () => {
+                    try {
+                        await axios.post(API_BASE, nuevoProducto.value);
+                        resetForm();
+                        await cargarDatos();
+                        alert('✅ Producto agregado exitosamente');
+                    } catch (error) {
+                        alert('❌ Error: ' + (error.response?.data?.error || error.message));
+                    }
+                };
+
+                const seleccionarEditar = (producto) => {
+                    nuevoProducto.value = { ...producto };
+                    editarMode.value = true;
+                };
+
+                const actualizarProducto = async () => {
+                    try {
+                        await axios.put(`${API_BASE}/${nuevoProducto.value.id}`, nuevoProducto.value);
+                        resetForm();
+                        await cargarDatos();
+                        alert('✅ Producto actualizado exitosamente');
+                    } catch (error) {
+                        alert('❌ Error actualizando producto: ' + error.message);
+                    }
+                };
+
+                const cancelarEdicion = () => {
+                    resetForm();
+                };
+
+                const eliminarProducto = async (id) => {
+                    if (confirm('¿Estás seguro de eliminar este producto?')) {
+                        try {
+                            await axios.delete(`${API_BASE}/${id}`);
+                            await cargarDatos();
+                            alert('✅ Producto eliminado exitosamente');
+                        } catch (error) {
+                            alert('❌ Error eliminando producto: ' + error.message);
+                        }
+                    }
+                };
+
+                // Gestión de stock
+                const gestionarStock = async () => {
+                    if (!productoSeleccionado.value || !cantidadStock.value) {
+                        alert('Selecciona un producto y cantidad');
+                        return;
+                    }
+
+                    try {
+                        await axios.put(`${API_BASE}/${productoSeleccionado.value.id}/stock?cantidad=${accionStock.value === 'agregar' ? cantidadStock.value : -cantidadStock.value}`);
+                        await cargarDatos();
+                        alert(`✅ Stock ${accionStock.value === 'agregar' ? 'agregado' : 'vendido'} exitosamente`);
+                        cantidadStock.value = 1;
+                    } catch (error) {
+                        alert('❌ Error: ' + (error.response?.data?.error || error.message));
+                    }
+                };
+
+                // Búsqueda y filtros
+                const buscarProductos = async () => {
+                    if (!filtroNombre.value) {
+                        await cargarProductos();
+                        return;
+                    }
+                    try {
+                        const response = await axios.get(`${API_BASE}/buscar?nombre=${filtroNombre.value}`);
+                        productos.value = response.data;
+                    } catch (error) {
+                        console.error('Error buscando productos:', error);
+                    }
+                };
+
+                const filtrarPorCategoria = async () => {
+                    if (!filtroCategoria.value) {
+                        await cargarProductos();
+                        return;
+                    }
+                    try {
+                        const response = await axios.get(`${API_BASE}/categoria/${filtroCategoria.value}`);
+                        productos.value = response.data;
+                    } catch (error) {
+                        console.error('Error filtrando por categoría:', error);
+                    }
+                };
+
+                // Reportes
+                const generarReporte = async () => {
+                    try {
+                        const response = await axios.get(`${API_BASE}/reporte`);
+                        alert('📊 Reporte de Inventario 1:\n\n' + response.data);
+                    } catch (error) {
+                        alert('❌ Error generando reporte: ' + error.message);
+                    }
+                };
+
+                // Utilidades
+                const resetForm = () => {
+                    nuevoProducto.value = {
+                        codigo: '',
+                        nombre: '',
+                        descripcion: '',
+                        categoria: '',
+                        precio: 0,
+                        stock: 0,
+                        stockMinimo: 5
+                    };
+                    editarMode.value = false;
+                };
+
+                // Inicialización
+                onMounted(() => {
+                    cargarDatos();
+                });
+
+                return {
+                    productos,
+                    productosStockBajo,
+                    categorias,
+                    estadisticas,
+                    nuevoProducto,
+                    productoSeleccionado,
+                    accionStock,
+                    cantidadStock,
+                    editarMode,
+                    filtroNombre,
+                    filtroCategoria,
+                    cargarProductos,
+                    agregarProducto,
+                    seleccionarEditar,
+                    actualizarProducto,
+                    cancelarEdicion,
+                    eliminarProducto,
+                    gestionarStock,
+                    buscarProductos,
+                    filtrarPorCategoria,
+                    cargarStockBajo,
+                    generarReporte
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+com/inventario1/repository/ProductoRepository.class
+com/inventario1/model/Producto.class
+com/inventario1/Inventario1Application.class
+com/inventario1/controller/ProductoController.class
+com/inventario1/service/ProductoService.class
