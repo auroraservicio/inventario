@@ -1,0 +1,16 @@
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de log
+*.log
+
+# Dependencias de Node.js
+node_modules/
+
+# Archivos de entorno (secretos)
+.env
+
+# Archivos compilados
+*.class
+*.exe
